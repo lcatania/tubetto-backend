@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Pipeline {
+  id                 String               @id @default(uuid())
+  name               String
+  cron               String
+  tz                 String
+  emails             String[]
+  query              String
+  avgQueryTime       Float?
+  avgProcessTime     Float?
+  avgExecutionTime   Float?
+  avgFilesize        Float?
+  // Sample json
+  // {
+  //   type: 'FILE' | 'DB',
+  //   format 'CSV' | 'etc...'
+  //   csvSettings:{ 
+  //     delimter: string,
+  //     stringDelimeter: string;
+  //   }
+  //   more settings to come...
+  //   dbMapping: {
+  //     sourceField: destField 
+  //   }
+  // }
+  outputFormat       PipelineOutputFormat
+  outputSettings     Json?
+  connection         Connection           @relation(fields: [connectionId], references: [id], name: "connection")
+  outputConnection   Connection?          @relation(fields: [outputConnectionId], references: [id], name: "outputConnection")
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @default(now())
+  connectionId       String
+  outputConnectionId String?
+  pipelineRuns       PipelineRun[]
+
+  @@index([id])
+}
+
+model PipelineRun {
+  id            String    @id @default(uuid())
+  createdAt     DateTime  @default(now())
+  executedAt    DateTime
+  status        RunStatus
+  pipeline      Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipelineId    String
+  content       String
+  queryTime     Float?
+  processTime   Float?
+  fileSize      Float?
+  executionTime Float?
+
+  @@index([id])
+}
+
+enum RunStatus {
+  SUCCESS
+  FAILED
+  WARNING
+}
+
+enum ConnectionType {
+  MSSQL
+  MYSQL
+  PG
+}
+
+enum PipelineOutputFormat {
+  CSV
+}
+
+model Connection {
+  id             String         @id @default(uuid())
+  conn           String
+  type           ConnectionType
+  pipeline       Pipeline[]     @relation("connection")
+  outputPipeline Pipeline[]     @relation("outputConnection")
+
+  @@index([id])
+}
