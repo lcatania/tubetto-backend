@@ -5,10 +5,66 @@ import { cors } from '@elysiajs/cors';
 import { PipelineStatsDto } from "./dto/pipeline-stats.dto";
 import { PipelineLogDto } from "./dto/pipeline-log.dto";
 import { PipelineRunDto } from "./dto/pipeline-run.dto";
-import { createAgenda } from "./lib/agenda";
+// import { createAgenda } from "./lib/agenda";
+import { createSecretEngine } from './lib/secret-engine'
+import Lucia from "@elysiajs/lucia-auth";
+import { swagger } from '@elysiajs/swagger'
+import { prisma as adapter } from '@lucia-auth/adapter-prisma';
 
 const db = new PrismaClient()
+const { elysia, lucia, oauth } = Lucia({
+  adapter: adapter(db, {
+    key: 'key',
+    user: 'user',
+    session: 'session'
+  })
+})
 // const agenda = createAgenda(false)
+const secretStore = await createSecretEngine(Bun.env.SECRET_STORE_PATH ?? "")
+
+const auth = new Elysia({ prefix: '/auth' })
+  .use(elysia)
+  .guard(
+    {
+      body: t.Object({
+        username: t.String(),
+        password: t.String()
+      })
+    },
+    (app) =>
+      app
+        .put('/sign-up', async ({ body, user }) => {
+          await user.signUp(body)
+          secretStore?.addUser(await user.id)
+          return user;
+        })
+        .post(
+          '/sign-in',
+          async ({ user, body: { username, password } }) => {
+            await user.signIn(username, password)
+
+            return `Sign in as ${username}`
+          }
+        )
+  )
+  .guard(
+    {
+      beforeHandle: ({ user: { validate } }) => validate()
+    },
+    (app) =>
+      app
+        .get('/profile', ({ user }) => user.data)
+        .get('/refresh', async ({ user }) => {
+          await user.refresh()
+
+          return user.data
+        })
+        .get('/sign-out', async ({ user }) => {
+          await user.signOut()
+
+          return 'Signed out'
+        })
+  )
 
 const app = new Elysia()
   .use(cors())
@@ -17,6 +73,17 @@ const app = new Elysia()
       set.status = 404
       return error.message;
     }
+  })
+  .use(elysia)
+  .use(swagger())
+  .use(auth)
+  .onBeforeHandle(async ({ path, user }) => {
+    switch (path) {
+      case '/swagger':
+      case '/swagger/json':
+        return;
+    }
+    await user.validate()
   })
   .group("pipeline", (app) =>
     app
@@ -32,7 +99,8 @@ const app = new Elysia()
         })
         return data;
       })
-      .post('/', async ({ body }) => {
+      .post('/', async ({ body, user }) => {
+        const userData = await user.data
         const newPipeline = (await db.pipeline.create({
           data: {
             name: body.name,
@@ -42,6 +110,11 @@ const app = new Elysia()
             emails: body.emails,
             outputFormat: body.format,
             outputSettings: body.formatSettings,
+            user: {
+              connect: {
+                id: userData.id
+              }
+            },
             connection: {
               create: {
                 type: body.connectionType,
@@ -55,8 +128,8 @@ const app = new Elysia()
             cron: true
           }
         }))
-        //TODO: Encryption
-        //TODO: VAULT
+        const hashedConnection = await Bun.password.hash(body.connection)
+        secretStore?.addSecret(userData.id, newPipeline.id, hashedConnection)
         //TODO: ADD QUEUES
         //TODO: 
         return new PipelineDto(newPipeline);
@@ -85,12 +158,16 @@ const app = new Elysia()
           }
         },
         (app) => app
-          .derive(async ({ params }) => {
+          .derive(async ({ params, user }) => {
             if (!params)
+              return { pipeline: undefined }
+            const userId = await user.id;
+            if (!userId)
               return { pipeline: undefined }
             const pipeline = (await db.pipeline.findUnique({
               where: {
-                id: params.id
+                id: params.id,
+                userId: userId
               },
               select: {
                 id: true,
@@ -120,7 +197,6 @@ const app = new Elysia()
           .get('/', async (context) => {
             return new PipelineDto(context.pipeline);
           })
-
           .get('/logs', async (context) => {
             return (await db.pipelineRun.findMany({
               select: {

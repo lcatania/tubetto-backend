@@ -1,0 +1,15 @@
+meta {
+  name: LOGOUT
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://0.0.0.0:3000/auth/sign-out
+  body: none
+  auth: none
+}
+
+headers {
+  Cookie: session=ry3468l28dfdc8328ad7udaifz5oaxzdykiowfhe; Max-Age=3600; Path=/; HttpOnly
+}

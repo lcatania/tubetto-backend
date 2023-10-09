@@ -10,6 +10,35 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id String @id @unique
+
+  auth_session Session[]
+  key          Key[]
+
+  username  String
+  pipelines Pipeline[]
+}
+
+model Session {
+  id             String @id @unique
+  user_id        String
+  active_expires BigInt
+  idle_expires   BigInt
+  user           User   @relation(references: [id], fields: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+model Key {
+  id              String  @id @unique
+  hashed_password String?
+  user_id         String
+  user            User    @relation(references: [id], fields: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
 model Pipeline {
   id                 String               @id @default(uuid())
   name               String
@@ -36,11 +65,13 @@ model Pipeline {
   // }
   outputFormat       PipelineOutputFormat
   outputSettings     Json?
+  user               User                 @relation(fields: [userId], references: [id])
   connection         Connection           @relation(fields: [connectionId], references: [id], name: "connection")
   outputConnection   Connection?          @relation(fields: [outputConnectionId], references: [id], name: "outputConnection")
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @default(now())
   connectionId       String
+  userId             String
   outputConnectionId String?
   pipelineRuns       PipelineRun[]
 
