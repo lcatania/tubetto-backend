@@ -1,5 +1,7 @@
+import { createCipheriv, randomBytes } from 'node:crypto';
+
 import { Elysia, InternalServerError, NotFoundError, t } from "elysia";
-import { ConnectionType, PrismaClient } from "@prisma/client";
+import { ConnectionType, PipelineOutputFormat, PrismaClient } from "@prisma/client";
 import { PipelineDto } from "./dto/pipeline.dto.";
 import { cors } from '@elysiajs/cors';
 import { PipelineStatsDto } from "./dto/pipeline-stats.dto";
@@ -10,6 +12,7 @@ import { createSecretEngine } from './lib/secret-engine'
 import Lucia from "@elysiajs/lucia-auth";
 import { swagger } from '@elysiajs/swagger'
 import { prisma as adapter } from '@lucia-auth/adapter-prisma';
+import { PipelineRunParams } from "./jobs/process-pipeline";
 
 const db = new PrismaClient()
 const { elysia, lucia, oauth } = Lucia({
@@ -101,6 +104,10 @@ const app = new Elysia()
       })
       .post('/', async ({ body, user }) => {
         const userData = await user.data
+        var iv = randomBytes(16);
+        var cipher = createCipheriv('aes-256-ocb', userData.id, iv);
+        const encryptedConnection: Buffer = cipher.update(body.connection);
+
         const newPipeline = (await db.pipeline.create({
           data: {
             name: body.name,
@@ -118,7 +125,7 @@ const app = new Elysia()
             connection: {
               create: {
                 type: body.connectionType,
-                conn: body.connection
+                conn: Buffer.concat([encryptedConnection, cipher.final()]).toString('hex')
               }
             }
           },
@@ -128,10 +135,14 @@ const app = new Elysia()
             cron: true
           }
         }))
-        const hashedConnection = await Bun.password.hash(body.connection)
-        secretStore?.addSecret(userData.id, newPipeline.id, hashedConnection)
-        //TODO: ADD QUEUES
-        //TODO: 
+        secretStore?.addSecret(userData.id, newPipeline.id, iv.toString('hex'))
+        // await agenda.every<PipelineRunParams>(newPipeline.cron, newPipeline.id, {
+        //   connection: body.connection,
+        //   connectionType: body.connectionType,
+        //   outputFormat: body.format,
+        //   outputSettings: body.formatSettings,
+        //   userId: userData.id,
+        // })
         return new PipelineDto(newPipeline);
       }, {
         body: t.Object({
@@ -142,8 +153,8 @@ const app = new Elysia()
           query: t.String(),
           connection: t.String(),
           connectionType: t.Enum(ConnectionType),
-          format: t.Union([t.Literal('CSV')]),
-          formatSettings: t.Object({}),
+          format: t.Enum(PipelineOutputFormat),
+          formatSettings: t.Any({}),
           fileAvailability: t.String()
         })
       })

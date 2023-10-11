@@ -21,12 +21,11 @@ export async function createSecretEngine(path: string) {
             delete secrets[userId]
             Bun.write(file, JSON.stringify(secrets))
         },
-        addSecret: (userId: string, connId: string, secret: string) => {
+        addSecret: (userId: string, pipelineId: string, secret: string) => {
             const existingUser = secrets[userId];
             if (!existingUser)
                 return;
-            secrets[userId] = { ...existingUser, [connId]: secret }
-            console.log(secrets[userId])
+            secrets[userId] = { ...existingUser, [pipelineId]: secret }
             Bun.write(file, JSON.stringify(secrets))
         },
         removeSecret: (userId: string, connId: string) => {
