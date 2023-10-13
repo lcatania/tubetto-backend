@@ -7,7 +7,7 @@ import { cors } from '@elysiajs/cors';
 import { PipelineStatsDto } from "./dto/pipeline-stats.dto";
 import { PipelineLogDto } from "./dto/pipeline-log.dto";
 import { PipelineRunDto } from "./dto/pipeline-run.dto";
-// import { createAgenda } from "./lib/agenda";
+import { createAgenda } from "./lib/agenda";
 import { createSecretEngine } from './lib/secret-engine'
 import Lucia from "@elysiajs/lucia-auth";
 import { swagger } from '@elysiajs/swagger'
@@ -22,7 +22,7 @@ const { elysia, lucia, oauth } = Lucia({
     session: 'session'
   })
 })
-// const agenda = createAgenda(false)
+const agenda = await createAgenda(false)
 const secretStore = await createSecretEngine(Bun.env.SECRET_STORE_PATH ?? "")
 
 const auth = new Elysia({ prefix: '/auth' })
@@ -273,7 +273,25 @@ const app = new Elysia()
   )
   .get('/enqueue', async (context) => {
     //TODO : Create this on pipeline creation
-    // const test = await agenda.every('* * * * *', '1', { test: 'test' })
+    var iv = randomBytes(16);
+    var cipher = createCipheriv('aes-256-ocb', "user123", iv);
+    const encryptedConnection: Buffer = cipher.update("conn123");
+    secretStore?.addSecret("user123", "pipeline123", iv.toString('hex'))
+    await agenda.every<PipelineRunParams>('* * * * *', "pipeline123", {
+      connection: Buffer.concat([encryptedConnection, cipher.final()]).toString('hex'),
+      connectionType: "PG",
+      outputFormat: 'CSV',
+      outputSettings: {
+        dbMapping: {},
+        type:'FILE',
+        csvSettings:{
+          delimeter: 'COMMA',
+          stringDelimiter: 'SINGLEQUOTE'
+        },
+      },
+      userId: "user123",
+      pipelineId: "pipeline123"
+    })
     // console.log(test)
     // return;
   })

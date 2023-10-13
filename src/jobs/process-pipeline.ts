@@ -1,5 +1,6 @@
 import Agenda, { Job } from "agenda";
 import { Client } from 'pg'
+import { createDecipheriv } from 'crypto'
 
 type PipelineQueryResult = {
     status: 'SUCCESS' | 'ERROR',
@@ -14,6 +15,7 @@ export type PipelineRunParams = {
     connection: string;
     connectionType: 'MSSQL' | 'MYSQL' | 'PG',
     userId: string;
+    pipelineId: string,
     outputFormat: 'CSV',
     outputSettings: {
         type: 'FILE' | 'DB',
@@ -25,14 +27,16 @@ export type PipelineRunParams = {
     }
 }
 
-export function processPipeline(agenda: Agenda, id: string) {
+export function processPipeline(agenda: Agenda, id: string, secretStore: any) {
     agenda.define(`${id}`, {}, (job: Job<PipelineRunParams>): void => {
-        //TODO: Get iv from secretStore var iv = new Buffer(encryptedArray[0], 'hex');
-        //TODO: This is encrypted conn var encrypted = new Buffer(encryptedArray[1], 'hex');
-        //TODO: Insert userId as password var decipher = Crypto.createDecipheriv('aes-128-cbc', new Buffer(<128 bit password >), iv);
-        //var decrypted = decipher.update(encrypted);
-        //var clearText = Buffer.concat([decrypted, decipher.final()]).toString();
-        console.log(job.attrs.data)
+        const secret = secretStore.secrets()[job.attrs.data.userId][job.attrs.data.pipelineId];
+        var iv = Buffer.from(secret, 'hex');
+        var encrypted = Buffer.from(job.attrs.data.connection, 'hex');
+        var decipher = createDecipheriv('aes-256-ocb', job.attrs.data.userId, iv);
+        var decrypted = decipher.update(encrypted);
+        var clearConnection = Buffer.concat([decrypted, decipher.final()]).toString();
+        console.log("CONN", clearConnection)
+        console.log("JOB DATA", job.attrs.data)
     });
 };
 

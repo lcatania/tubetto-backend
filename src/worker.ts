@@ -1,3 +1,3 @@
 import { createAgenda } from './lib/agenda'
 
-createAgenda(true);
+await createAgenda(true);
